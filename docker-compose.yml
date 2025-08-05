@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  qwen25vl-lora-training:
+    build: .
+    container_name: qwen25vl-lora-training
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    ports:
+      - "8888:8888"
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu] 
