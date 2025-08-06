@@ -80,13 +80,13 @@ def main():
     model_name = "Qwen/Qwen2.5-VL-3B-Instruct"
     train_data_path = "data/train.json"
     output_dir = "output"
-    batch_size = 1
-    num_epochs = 3
+    batch_size = 16
+    num_epochs = 500
     learning_rate = 2e-4
     
     os.makedirs(output_dir, exist_ok=True)
     
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:3")
     print(f"使用设备: {device}")
     
     print("加载模型和分词器...")
@@ -98,7 +98,7 @@ def main():
         model_name,
         torch_dtype=torch.float16,
         trust_remote_code=True,
-        device_map="auto",
+        device_map={"": 1},
         quantization_config=BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.float16,
@@ -106,20 +106,17 @@ def main():
             bnb_4bit_quant_type="nf4"
         )
     )
-    
+    model.config.use_cache = False  # 解决use_cache和gradient checkpointing冲突
     if not hasattr(model, 'lm_head'):
         vocab_size = tokenizer.vocab_size
         hidden_size = model.config.hidden_size
         model.lm_head = torch.nn.Linear(hidden_size, vocab_size, bias=False)
-        model.lm_head = model.lm_head.to(model.dtype).to(model.device)
-    
+    model.lm_head = model.lm_head.to(model.dtype).to(device)
     model = prepare_model_for_kbit_training(model)
-    
     if not hasattr(model, 'prepare_inputs_for_generation'):
         def prepare_inputs_for_generation(self, *args, **kwargs):
             return self.model.prepare_inputs_for_generation(*args, **kwargs)
         model.prepare_inputs_for_generation = prepare_inputs_for_generation.__get__(model)
-    
     print("设置LoRA...")
     lora_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
@@ -130,8 +127,8 @@ def main():
         target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         bias="none"
     )
-    
     model = get_peft_model(model, lora_config)
+    model = model.to(device)
     model.print_trainable_parameters()
     
     print("加载数据集...")
